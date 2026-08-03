@@ -1,0 +1,63 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: دریافت کد پروژه
+        uses: actions/checkout@v4
+
+      - name: نصب جاوا
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: نصب Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      - name: ساخت پوشه‌های اندروید (android/) در صورت نبود
+        run: |
+          if [ ! -d "android" ]; then
+            flutter create --platforms=android --org com.expensetracker.app --project-name expense_tracker .
+          fi
+
+      - name: افزودن دسترسی‌های لازم برای اعلان‌ها به AndroidManifest.xml
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "POST_NOTIFICATIONS" "$MANIFEST"; then
+            sed -i 's/<manifest /<manifest xmlns:tools="http:\/\/schemas.android.com\/tools" /' "$MANIFEST" || true
+            sed -i '0,/<application/s//<uses-permission android:name="android.permission.POST_NOTIFICATIONS"\/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"\/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"\/>\n\n    <application/' "$MANIFEST"
+          fi
+
+      - name: تنظیم minSdkVersion
+        run: |
+          GRADLE="android/app/build.gradle"
+          if [ -f "$GRADLE" ]; then
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' "$GRADLE" || true
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' "$GRADLE" || true
+          fi
+          GRADLE_KTS="android/app/build.gradle.kts"
+          if [ -f "$GRADLE_KTS" ]; then
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' "$GRADLE_KTS" || true
+          fi
+
+      - name: دریافت وابستگی‌ها
+        run: flutter pub get
+
+      - name: ساخت APK نسخه Release
+        run: flutter build apk --release
+
+      - name: آپلود فایل APK به‌عنوان خروجی قابل دانلود
+        uses: actions/upload-artifact@v4
+        with:
+          name: expense-tracker-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
